@@ -9,48 +9,37 @@ enum SERVERDATA is export (
         AUTH => 3,
 );
 
-sub connect(:$host, :$port, :$password) is export {
-    my %arguments = host => $host // "localhost",
-                    port => $port // 27015,
-    ;
+sub connect(Str :$host = "localhost", Int :$port = 27015, Str :$password) is export {
+    my $connection = IO::Socket::INET.new: :$host, :$port;
 
-    my $connection = IO::Socket::INET.new(|%arguments);
-
-    authenticate(:$connection, :$password);
+    authenticate :$connection, :$password;
     return $connection;
 }
 
-sub authenticate(:$connection, :$password) {
-    my $packet-type = SERVERDATA::AUTH;
-    my $message = $password;
+sub authenticate(:$connection, Str :$password) {
+    _raw_send :$connection, :packet-type(SERVERDATA::AUTH), :message($password);
+    my $response = receive $connection, SERVERDATA::AUTH_RESPONSE;
 
-    _raw_send(:$connection, :$packet-type, :$message);
-    my $response = receive($connection, SERVERDATA::AUTH_RESPONSE);
-
-    unless $response.defined {
-        die "Could not authenticate against the RCON server.";
-    }
+    die "Could not authenticate against the RCON server." without $response;
 }
 
-sub send(:$connection, :$packet-type, :$message) is export {
-    _raw_send(:$connection, :$packet-type, :$message);
-    my $response = receive($connection, SERVERDATA::RESPONSE_VALUE);
-    unless $response.defined {
-        die "Received a bad response from the RCON server.";
-    }
+sub send(:$connection, SERVERDATA :$packet-type, Str :$message) is export {
+    _raw_send :$connection, :$packet-type, :$message;
+    my $response = receive $connection, SERVERDATA::RESPONSE_VALUE;
+    die "Received a bad response from the RCON server." without $response;
 
     return $response;
 }
 
-sub _raw_send(:$connection, :$packet-type, :$message) {
+sub _raw_send(:$connection, SERVERDATA :$packet-type, Str :$message) {
     my $payload = pack("VV", 1, $packet-type) ~ $message.encode ~ pack("xx");
     $payload = pack("V", $payload.bytes) ~ $payload;
 
     $connection.write($payload);
 }
 
-sub receive($connection, $expected-type) {
-    my $response = $connection.recv(4096, :bin);
+sub receive($connection, SERVERDATA $expected-type) {
+    my $response = $connection.recv: 4096, :bin;
     my ($response-size, $response-id, $packet-type, $response-body) = $response.unpack("VVVa*");
 
     if ($response-id == 1 && $packet-type == $expected-type && $response-size >= 10 && $response-size <= 4096) {

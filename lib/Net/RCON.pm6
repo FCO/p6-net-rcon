@@ -33,14 +33,14 @@ sub send(:$connection, SERVERDATA :$packet-type, Str :$message) is export {
 
 sub _raw_send(:$connection, SERVERDATA :$packet-type, Str :$message) {
     my $payload = pack("VV", 1, $packet-type) ~ $message.encode ~ pack("xx");
-    $payload = pack("V", $payload.bytes) ~ $payload;
+    $payload = pack"V", $payload.bytes) ~ $payload;
 
-    $connection.write($payload);
+    $connection.write: $payload;
 }
 
 sub receive($connection, SERVERDATA $expected-type) {
     my $response = $connection.recv: 4096, :bin;
-    my ($response-size, $response-id, $packet-type, $response-body) = $response.unpack("VVVa*");
+    my ($response-size, $response-id, $packet-type, $response-body) = $response.unpack: "VVVa*";
 
     if ($response-id == 1 && $packet-type == $expected-type && $response-size >= 10 && $response-size <= 4096) {
         return $response-body;
